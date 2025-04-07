@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo to SVG Stencil Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- [Previous HTML content remains the same until layer controls] -->
+    
+    <div class="layer-control flex flex-col mb-2 p-2 bg-gray-100 rounded">
+        <div class="flex items-center">
+            <div class="w-6 h-6 mr-2 border border-gray-300" 
+                 style="background-color: rgb(${color.r},${color.g},${color.b})"></div>
+            <span class="flex-grow">Layer ${index + 1}</span>
+            <label class="flex items-center">
+                <input type="checkbox" class="layer-toggle mr-1" 
+                       data-index="${index}" checked>
+                Visible
+            </label>
+        </div>
+        <div class="flex items-center mt-1">
+            <span class="text-xs mr-2">Opacity:</span>
+            <input type="range" class="opacity-slider w-full" min="0" max="100" 
+                   value="100" data-index="${index}">
+            <button class="save-layer bg-blue-500 hover:bg-blue-600 text-white text-xs rounded px-2 py-1 ml-2" 
+                    data-index="${index}">
+                <i class="fas fa-download mr-1"></i>Save
+            </button>
+        </div>
+    </div>
+
+    <!-- [Rest of HTML content remains the same] -->
+    <script src="stencil-converter-v5.js"></script>
+</body>
+</html>
