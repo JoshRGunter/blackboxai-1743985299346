@@ -1,15 +1,61 @@
 // Complete Photo to SVG Stencil Converter
 class StencilConverter {
     constructor() {
-        this.MAX_COLORS = 12;
-        this.COLOR_THRESHOLD = 30;
+        this.MAX_COLORS = 50;  // Increased from 12 to allow more color variations
+        this.COLOR_THRESHOLD = 50;  // Increased from 30 for better color separation
+        this.ANTI_ALIASING = 0.3;  // New property for smoother edges
         this.colorLayers = [];
         this.originalImage = null;
+        this.layerNames = [];  // For individual layer naming
     }
 
     init() {
         this.setupEventListeners();
         this.setupUI();
+        
+        // Setup drag and drop for layers
+        document.getElementById('svgPreview').addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        
+        document.getElementById('svgPreview').addEventListener('drop', (e) => {
+            e.preventDefault();
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const toIndex = this.getDropIndex(e.clientY);
+            if (fromIndex !== toIndex) {
+                this.reorderLayers(fromIndex, toIndex);
+            }
+        });
+    }
+
+    getDropIndex(yPos) {
+        const layers = Array.from(document.querySelectorAll('.layer-control'));
+        for (let i = 0; i < layers.length; i++) {
+            const rect = layers[i].getBoundingClientRect();
+            if (yPos < rect.top + rect.height / 2) {
+                return i;
+            }
+        }
+        return layers.length - 1;
+    }
+
+    reorderLayers(fromIndex, toIndex) {
+        // Reorder arrays
+        const [movedLayer] = this.colorLayers.splice(fromIndex, 1);
+        this.colorLayers.splice(toIndex, 0, movedLayer);
+        
+        const [movedName] = this.layerNames.splice(fromIndex, 1);
+        this.layerNames.splice(toIndex, 0, movedName);
+        
+        // Update DOM
+        const svgPreview = document.getElementById('svgPreview');
+        svgPreview.innerHTML = '';
+        this.colorLayers.forEach((layer, index) => {
+            layer.element = layer.element.cloneNode(true);
+            layer.element.dataset.index = index;
+            svgPreview.appendChild(layer.element);
+            svgPreview.appendChild(layer.svg);
+        });
     }
 
     setupUI() {
@@ -118,16 +164,24 @@ class StencilConverter {
             const g = pixelData[i + 1];
             const b = pixelData[i + 2];
             const a = pixelData[i + 3];
-            if (a < 255) continue;
+            if (a < 128) continue;  // More strict alpha threshold
 
             const hex = this.rgbToHex(r, g, b);
-            colorMap.set(hex, (colorMap.get(hex) || 0) + 1);
+            colorMap.set(hex, {
+                count: (colorMap.get(hex)?.count || 0) + 1,
+                r, g, b  // Store original values for averaging
+            });
         }
 
         return Array.from(colorMap.entries())
-            .sort((a, b) => b[1] - a[1])
+            .sort((a, b) => b[1].count - a[1].count)
             .slice(0, this.MAX_COLORS)
-            .map(item => this.hexToRgb(item[0]));
+            .map(item => ({
+                r: item[1].r,
+                g: item[1].g,
+                b: item[1].b,
+                count: item[1].count
+            }));
     }
 
     groupColors(colors) {
@@ -163,6 +217,7 @@ class StencilConverter {
         const svgPreview = document.getElementById('svgPreview');
         svgPreview.innerHTML = '';
         this.colorLayers = [];
+        this.layerNames = colors.map((_, i) => `Layer ${i + 1}`);
 
         colors.forEach((color, index) => {
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -177,21 +232,54 @@ class StencilConverter {
             svg.appendChild(path);
 
             const layerDiv = document.createElement('div');
-            layerDiv.className = 'layer-control flex items-center mb-2 p-2 bg-gray-100 rounded';
+            layerDiv.className = 'layer-control flex items-center mb-2 p-2 bg-gray-100 rounded cursor-move';
+            layerDiv.draggable = true;
+            layerDiv.dataset.index = index;
             layerDiv.innerHTML = `
                 <div class="w-6 h-6 mr-2 border border-gray-300" 
                      style="background-color: rgb(${color.r},${color.g},${color.b})"></div>
                 <span class="flex-grow">Layer ${index + 1}</span>
+                <input type="text" class="layer-name border rounded px-2 py-1 text-sm w-32 mr-2" 
+                       value="Layer ${index + 1}" data-index="${index}">
                 <label class="flex items-center">
                     <input type="checkbox" class="layer-toggle mr-1" 
                            data-index="${index}" checked>
                     Visible
                 </label>
+                <button class="layer-color ml-2 px-2 py-1 bg-gray-200 rounded text-xs" 
+                        data-index="${index}">
+                    <i class="fas fa-palette mr-1"></i>Edit
+                </button>
             `;
             svgPreview.appendChild(layerDiv);
             svgPreview.appendChild(svg);
 
-            this.colorLayers.push({ color, svg });
+            this.colorLayers.push({ color, svg, element: layerDiv });
+            
+            // Add event listeners
+            layerDiv.querySelector('.layer-name').addEventListener('change', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                this.layerNames[index] = e.target.value;
+            });
+
+            // Color picker functionality
+            layerDiv.querySelector('.layer-color').addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                const layer = this.colorLayers[index];
+                const colorInput = document.createElement('input');
+                colorInput.type = 'color';
+                colorInput.value = this.rgbToHex(layer.color.r, layer.color.g, layer.color.b);
+                
+                colorInput.addEventListener('change', (evt) => {
+                    const hex = evt.target.value;
+                    const rgb = this.hexToRgb(hex);
+                    layer.color = rgb;
+                    layer.svg.querySelector('path').setAttribute('fill', `rgb(${rgb.r},${rgb.g},${rgb.b})`);
+                    layerDiv.querySelector('div.w-6.h-6').style.backgroundColor = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+                });
+                
+                colorInput.click();
+            });
         });
     }
 
@@ -200,47 +288,77 @@ class StencilConverter {
         const height = imageData.height;
         const pixels = imageData.data;
         let pathData = '';
+        let currentPath = '';
 
-        for (let y = 0; y < height; y += 2) {
-            for (let x = 0; x < width; x += 2) {
+        for (let y = 0; y < height; y++) {  // Process every pixel (removed +=2)
+            for (let x = 0; x < width; x++) {
                 const i = (y * width + x) * 4;
                 const r = pixels[i];
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
+                const a = pixels[i + 3];
                 
-                if (this.colorDistance({r, g, b}, color) < this.COLOR_THRESHOLD) {
-                    pathData += ` M${x},${y} h2 v2 h-2 z`;
+                if (a > 128 && this.colorDistance({r, g, b}, color) < this.COLOR_THRESHOLD) {
+                    if (!currentPath) {
+                        currentPath = `M${x},${y}`;
+                    } else {
+                        currentPath += ` L${x},${y}`;
+                    }
+                } else if (currentPath) {
+                    pathData += currentPath + ' ';
+                    currentPath = '';
                 }
             }
         }
         return pathData;
     }
 
-    exportSVG() {
+    exportSVG(exportType = 'combined') {
         if (this.colorLayers.length === 0) return;
 
         const svgNS = "http://www.w3.org/2000/svg";
-        const combinedSVG = document.createElementNS(svgNS, "svg");
-        combinedSVG.setAttribute("width", this.originalImage.width);
-        combinedSVG.setAttribute("height", this.originalImage.height);
-        combinedSVG.setAttribute("viewBox", `0 0 ${this.originalImage.width} ${this.originalImage.height}`);
-        combinedSVG.setAttribute("xmlns", svgNS);
+        
+        if (exportType === 'combined') {
+            // Original combined export logic
+            const combinedSVG = document.createElementNS(svgNS, "svg");
+            combinedSVG.setAttribute("width", this.originalImage.width);
+            combinedSVG.setAttribute("height", this.originalImage.height);
+            combinedSVG.setAttribute("viewBox", `0 0 ${this.originalImage.width} ${this.originalImage.height}`);
+            combinedSVG.setAttribute("xmlns", svgNS);
 
-        this.colorLayers.forEach((layer, index) => {
-            const group = document.createElementNS(svgNS, "g");
-            group.setAttribute("id", `layer-${index + 1}`);
-            group.innerHTML = layer.svg.innerHTML;
-            combinedSVG.appendChild(group);
-        });
+            this.colorLayers.forEach((layer, index) => {
+                const group = document.createElementNS(svgNS, "g");
+                group.setAttribute("id", `layer-${index + 1}`);
+                group.innerHTML = layer.svg.innerHTML;
+                combinedSVG.appendChild(group);
+            });
 
+            this.downloadSVG(combinedSVG, 'stencil-layers-combined.svg');
+        } else {
+            // Individual layer exports
+            this.colorLayers.forEach((layer, index) => {
+                const layerSVG = document.createElementNS(svgNS, "svg");
+                layerSVG.setAttribute("width", this.originalImage.width);
+                layerSVG.setAttribute("height", this.originalImage.height);
+                layerSVG.setAttribute("viewBox", `0 0 ${this.originalImage.width} ${this.originalImage.height}`);
+                layerSVG.setAttribute("xmlns", svgNS);
+                layerSVG.innerHTML = layer.svg.innerHTML;
+                
+                const layerName = this.layerNames[index] || `layer-${index + 1}`;
+                this.downloadSVG(layerSVG, `${layerName}.svg`);
+            });
+        }
+    }
+
+    downloadSVG(svgElement, filename) {
         const serializer = new XMLSerializer();
-        const svgStr = serializer.serializeToString(combinedSVG);
+        const svgStr = serializer.serializeToString(svgElement);
         const blob = new Blob([svgStr], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
 
         const a = document.createElement("a");
         a.href = url;
-        a.download = "stencil-layers.svg";
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
