@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo to SVG Stencil Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -41,12 +43,44 @@
             <button id="processBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 <i class="fas fa-cog mr-2"></i>Process Image
             </button>
-            <button id="exportBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                <i class="fas fa-download mr-2"></i>Export SVG
-            </button>
+            <div class="relative group">
+                <button id="exportBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <i class="fas fa-download mr-2"></i>Export
+                </button>
+                <div class="absolute hidden group-hover:block bg-white shadow-lg rounded mt-1 w-48 z-10 right-0">
+                    <button id="exportCombined" class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+                        Combined SVG
+                    </button>
+                    <button id="exportIndividual" class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+                        Individual Layers
+                    </button>
+                    <button id="exportZip" class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+                        ZIP Archive
+                    </button>
+                </div>
+            </div>
             <button id="resetBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-6 rounded-lg transition-colors">
                 <i class="fas fa-redo mr-2"></i>Reset
             </button>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">Conversion Settings</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Color Sensitivity</label>
+                    <input type="range" id="colorSensitivity" min="10" max="100" value="50" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Max Colors</label>
+                    <input type="number" id="maxColors" min="1" max="20" value="20" class="w-full p-2 border rounded">
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="enableAntiAliasing" checked class="mr-2">
+                    <label for="enableAntiAliasing" class="text-sm text-gray-700">Enable Anti-Aliasing</label>
+                </div>
+            </div>
         </div>
 
         <div id="progressBar" class="hidden w-full bg-gray-200 rounded-full h-2.5 mb-4">
@@ -67,5 +101,47 @@
     </div>
 
     <script src="stencil-converter.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const converter = new StencilConverter();
+            
+            // Update settings from UI controls
+            document.getElementById('processBtn').addEventListener('click', () => {
+                converter.COLOR_THRESHOLD = 100 - document.getElementById('colorSensitivity').value;
+                converter.MAX_COLORS = parseInt(document.getElementById('maxColors').value);
+                converter.ANTI_ALIASING = document.getElementById('enableAntiAliasing').checked ? 0.3 : 0;
+                converter.processImage();
+            });
+
+            // Export handlers
+            document.getElementById('exportCombined').addEventListener('click', () => converter.exportSVG('combined'));
+            document.getElementById('exportIndividual').addEventListener('click', () => converter.exportSVG('individual'));
+            document.getElementById('exportZip').addEventListener('click', async () => {
+                const zip = new JSZip();
+                const converter = new StencilConverter();
+                
+                // Add each layer to the ZIP
+                converter.colorLayers.forEach((layer, index) => {
+                    const layerName = converter.layerNames[index] || `layer-${index + 1}`;
+                    const svgStr = new XMLSerializer().serializeToString(layer.svg);
+                    zip.file(`${layerName}.svg`, svgStr);
+                });
+
+                // Add a manifest file
+                const manifest = {
+                    created: new Date().toISOString(),
+                    layers: converter.colorLayers.map((_, i) => ({
+                        name: converter.layerNames[i] || `layer-${i + 1}`,
+                        color: `rgb(${converter.colorLayers[i].color.r},${converter.colorLayers[i].color.g},${converter.colorLayers[i].color.b})`
+                    }))
+                };
+                zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+
+                // Generate and download the ZIP
+                const content = await zip.generateAsync({type: 'blob'});
+                saveAs(content, 'stencil-layers.zip');
+            });
+        });
+    </script>
 </body>
 </html>
